@@ -1,0 +1,1 @@
+[img [lindex $::argv 1]][cut]

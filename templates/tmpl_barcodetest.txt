@@ -1,0 +1,21 @@
+Barcodes[set_barcode_height 60][set_hri_font 1][set_hri 2]
+[
+##UPC-E: 0-9, digits: 8
+##[barcode 1 "12345678"]
+##CODABAR: 0-9 - \$ : / . +
+##[barcode 6 "123456"]
+##CODE128??
+##[barcode 73 {1234}]
+]UPC-A: 0-9, digits: 12
+[barcode 0 "123456789012"]
+EAN13: 0-9, digits: 13
+[barcode 2 "1234567890123"]
+EAN8: 0-9, digits: 8
+[barcode 3 "12345678"]
+CODE39: 0-9,A-Z, ,\$,%,+,-,.,/
+[barcode 4 "TEST13370"]
+ITF: 0-9, digits >= 2 even
+[barcode 5 "123456789012345678"]
+CODE93: all chars
+[barcode 72 {Foo.. 123}]
+

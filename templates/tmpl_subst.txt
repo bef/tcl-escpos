@@ -1,0 +1,12 @@
+foo
+[return 23]
+test
+[ # this is a loop
+set out {}
+foreach a {1 2 3} {
+	lappend out "line $a"
+}; join $out "\n"
+]
+[ # this is another loop
+	foreachline a {1 2 3} {pos $a}
+]

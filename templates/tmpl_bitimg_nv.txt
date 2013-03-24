@@ -1,0 +1,11 @@
+[bitimg_nv 0]
+[bitimg_nv 1]
+[bitimg_nv 2]
+[bitimg_nv 3]
+[bitimg_nv 4]
+[bitimg_nv 5]
+[bitimg_nv 6]
+[bitimg_nv 7]
+[bitimg_nv 8]
+[bitimg_nv 9]
+
