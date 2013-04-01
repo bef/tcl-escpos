@@ -1,1 +1,1 @@
-[img [lindex $::argv 1]][cut]
+[img [lindex $::argv 1]]

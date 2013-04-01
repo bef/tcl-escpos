@@ -35,7 +35,6 @@ catch {package require tclgd}
 namespace eval ::escpos {
 	namespace export *
 
-	proc date {{format {%A %d. %b %Y %T}}} { return [clock format [clock seconds] -format $format] }
 	proc _nLnH {n} { return [list [expr {$n % 256}] [expr {$n / 256}]] }
 
 	proc ff {} { ## FF: Print and recover to page mode
@@ -92,9 +91,13 @@ namespace eval ::escpos {
 		return "\x1b\x40"
 	}
 	## NOT IMPLEMENTED: ESC D n1...nk NUL: Set horizontal tab position
+	
 	proc set_emph_chars {n} { ## ESC E n: Specify/cancel emphasized characters
 		return [format "\x1b\x45%c" $n]
 	}
+	proc bold {} { return [set_emph_chars 1] }
+	proc unbold {} { return [set_emph_chars 0] }
+	
 	proc set_double_printing {n} { ## ESC G n: Specify/cancel emphasized characters
 		return [format "\x1b\x47%c" $n]
 	}
@@ -250,25 +253,32 @@ namespace eval ::escpos {
 	## not implemented: Chinese Character Control Commands
 	
 	proc img {fn} { ## load and print bit image
-		if {![file readable $fn]} {
-			puts stderr "ERROR: file not readable: $fn"
-			return ":("
-		}
 		if {[info commands ::GD] eq ""} {
 			puts stderr "ERROR: tclgd library not loaded"
 			return ":("
 		}
 		
-		set fp [open $fn r]
+		if {[catch {
+			if {$fn eq "-"} {
+				set fp stdin
+			} else {
+				set fp [open $fn r]
+			}
+		} fid]} {
+			puts stderr "ERROR: $fid"
+			return ":("
+		}
+		
 		fconfigure $fp -translation binary
 		GD create_from_png gdimg $fp
-		close $fp
+		if {$fp ne "stdin"} { close $fp }
 
-		set lightgray [expr {[gdimg resolve_color 0x80 0x80 0x80] & 0xff}]
-		# set white [expr {[gdimg closest_color 0xff 0xff 0xff] & 0xff}]
-		# set black [expr {[gdimg closest_color 0x00 0x00 0x00] & 0xff}]
-		set threshold_color $lightgray
-
+		if {[gdimg total_colors] != 2} {
+			set threshold_color [expr {[gdimg resolve_color 0x80 0x80 0x80] & 0xff}]
+		} else {
+			set threshold_color 1
+		}
+		
 		set da {}
 		set w_real [gdimg width]
 		set h_real [gdimg height]
@@ -309,14 +319,6 @@ namespace eval ::eptmpl {
 		return $text
 	}
 
-	proc foreachline {varlist elemlist output} {
-		set out ""
-		foreach $varlist $elemlist {
-			lappend out [subst $output]
-		}
-		return [join $out "\n"]
-	}
-
 	proc parse {text {init {}}} {
 		namespace import ::escpos::*
 		eval $init
@@ -342,11 +344,37 @@ namespace eval ::eptmpl {
 	proc send {url data {do_init 1}} {
 		set ps [openprinter $url]
 		if {$do_init} {
-			# set data "[::escpos::init]$data[::escpos::feed 5][::escpos::cut]"
 			set data "[::escpos::init]$data[::escpos::feed 6][::escpos::cut]"
 		}
 		puts -nonewline $ps $data
 		close $ps
 	}
+
+	## template helper functions
+	proc date {{format {%A %d. %b %Y %T}}} { return [clock format [clock seconds] -format $format] }
+
+	proc foreachline {varlist elemlist output} {
+		set out ""
+		foreach $varlist $elemlist {
+			lappend out [subst $output]
+		}
+		return [join $out "\n"]
+	}
+
+	proc wrap {text {maxlen 42}} {
+		set strlen [string length $text]
+		set curpos 0
+
+		while {$curpos < [expr $strlen-$maxlen] } {
+			set wpos [expr [string wordstart $text [expr $maxlen+$curpos]]-1]
+			if { [string is space [string range $text [expr $maxlen+$curpos] [expr $maxlen+$curpos]] ] } {
+				set wpos [expr $maxlen+$curpos]
+			}
+			set text [string replace $text $wpos $wpos "\n"]
+			set curpos $wpos
+		}
+		return $text
+	}
+
 }
 
