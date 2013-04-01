@@ -39,12 +39,13 @@ if {![info exists ::env(ESCPOSURL)]} {
 	exit 1
 }
 set printurl $::env(ESCPOSURL)
+set filename [lindex $::argv 0]
 
-if {![file readable [lindex $::argv 0]]} {
-	puts stderr "Usage: $::argv0 <template file>"
+if {![file readable $filename] && $filename ne "-"} {
+	puts stderr "Usage: $::argv0 <template file|->"
 	exit 1
 }
 
-set text [eptmpl::readfile [lindex $::argv 0]]
+set text [eptmpl::readfile $filename]
 #puts [eptmpl::parse $text]
 eptmpl::send $printurl [eptmpl::parse $text]

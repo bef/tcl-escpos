@@ -312,11 +312,17 @@ namespace eval ::escpos {
 
 namespace eval ::eptmpl {
 	proc readfile {filename} {
-		set f [open $filename r]
-		fconfigure $f -translation binary
-		set text [read $f]
-		close $f
-		return $text
+		if {$filename eq "-"} {
+			set f stdin
+			fconfigure $f -translation binary
+			return [read $f]
+		} else {
+			set f [open $filename r]
+			fconfigure $f -translation binary
+			set text [read $f]
+			close $f
+			return $text
+		}
 	}
 
 	proc parse {text {init {}}} {
