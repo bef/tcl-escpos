@@ -1,0 +1,1 @@
+[small][exec banner -w 56 [lindex $::argv 1]]
