@@ -1,4 +1,4 @@
-#!/usr/bin/env tclsh
+#!/usr/bin/env tclsh8.5
 ## Author: Ben Fuhrmannek <bef@eventphone.de>
 ## Date: 2013-03-24
 ##

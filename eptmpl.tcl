@@ -178,7 +178,7 @@ namespace eval ::escpos {
 	proc set_bwinv {{n 1}} { ## GS B n: Specify/cancel white/black inverted printing
 		return [format "\x1d\x42%c" $n]
 	}
-	proc unset_wbinv {} { return [SET_BWINV 0] }
+	proc unset_wbinv {} { return [set_bwinv 0] }
 	proc set_cpm {n m} { ## GS C 0 n m: Set counter print mode
 		return [format "\x1d\x43\x30%c%c" $n $m]
 	}
@@ -252,7 +252,7 @@ namespace eval ::escpos {
 	}
 	## not implemented: Chinese Character Control Commands
 	
-	proc img {fn} { ## load and print bit image
+	proc img {fn {mode GSv0}} { ## load and print bit image
 		if {[info commands ::GD] eq ""} {
 			puts stderr "ERROR: tclgd library not loaded"
 			return ":("
@@ -304,8 +304,18 @@ namespace eval ::escpos {
 			}
 		}
 
-		## print using GS v 0
-		return [binary format "H*cssc[expr {$w/8*$h}]" {1d7630} 0 [expr {$w / 8}] $h $da]
+		switch -- $mode {
+			GSv0 {
+				## print using GS v 0
+				return [binary format "H*cssc[expr {$w/8*$h}]" {1d7630} 0 [expr {$w / 8}] $h $da]
+			}
+			raw {
+				return [list $w $h $da]
+			}
+			default {
+				return ":|"
+			}
+		}
 	}
 	
 }
