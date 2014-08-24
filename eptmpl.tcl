@@ -318,6 +318,125 @@ namespace eval ::escpos {
 		}
 	}
 	
+	## Customer Display Commands
+	proc dm_cur_home {} {
+		## HOM
+		return [format "%c" 0x0b]
+	}
+	proc dm_cur_end {} {
+		## US B
+		return [format "%c%x" 0x1f 0x42]
+	}
+	proc dm_cur_line_home {} {
+		## CR
+		return [format "%c" 0x0d]
+	}
+	proc dm_cur_line_end {} {
+		## US CR
+		return [format "%c%x" 0x1f 0x0d]
+	}
+	proc dm_cur_down {} {
+		## LF
+		return [format "%c" 0x0a]
+	}
+	proc dm_cur_up {} {
+		## US LF
+		return [format "%c%x" 0x1f 0x0a]
+	}
+	proc dm_cur_tab {} {
+		## HT
+		return [format "%c" 0x09]
+	}
+	proc dm_cur_bs {} {
+		## BS
+		return [format "%c" 0x08]
+	}
+	proc dm_cur_pos {{n 0} {m 0}} { ## Set cursor position
+		## US $ n m
+		return [format "%c%c%c%c" 0x1f 0x24 $n $m ]
+	}
+	proc dm_clear_screen {} {
+		## CLR
+		return [format "%c" 0x0c]
+	}
+	proc dm_clear_line {} {
+		## CAN
+		return [format "%c" 0x18]
+	}
+	proc dm_display_time_counter {} { # Display counter Time
+		## US U
+		return [format "%c%c" 0x1f 0x55 ]
+	}
+	proc dm_set_peripheral {{n 2}} { ## Set device to receive data
+		## 0 = none
+		## 1 = printer only
+		## 2 = display only
+		## 3 = both
+		## 4 = undefined as defined in the manual
+		return [format "%c%c%c" 0x1b 0x3d $n ]
+	}
+	proc dm_set_cursor_visible {{n 1}} { ## Set visibility of cursor
+		## US C n
+		## 1 or 48 = on
+		## 0 or 49 = off
+		return [format "%c%c%c" 0x1f 0x43 $n ]
+	}
+	proc dm_set_blank_interval {{n 1}} { ## Set display blank interval
+		## US E n
+		## 0	 = always on
+		## 1-254 = blinking n*50ms on, n*50ms off
+		## 255	 = always off
+		return [format "%c%c%c" 0x1f 0x45 $n ]
+	}
+	proc dm_set_brightness {{n 4}} { ## Set device brightness
+		##	US X n
+		## 1 =	20%
+		## 2 =	40%
+		## 3 =	60%
+		## 4 = 100%
+		## other values:
+		##	<= 20 = 20%
+		##	<= 40 = 40%
+		##	<= 60 = 60%
+		##	others 100%
+		##
+		if { $n >= 1 && $n <= 4 } { return [format "%c%c%c" 0x1f 0x58 $n ] }
+		if { $n <= 20 }			  { return [format "%c%c%c" 0x1f 0x58 1 ] }
+		if { $n <= 40 }			  { return [format "%c%c%c" 0x1f 0x58 2 ] }
+		if { $n <= 60 }			  { return [format "%c%c%c" 0x1f 0x58 3 ] }
+		return [format "%c%c%c" 0x1f 0x58 4 ]
+	}
+	proc dm_set_time_counter {{h 0} {m 0}} { # Set and display counter Time
+		## US T h m
+		## 0 <= h <= 23
+		## 0 <= m <= 59
+		return [format "%c%c%c%c" 0x1f 0x54 $h $m ]
+	}
+	proc dm_win_select {{n 1} {x1 1} {y1 1} {x2 20} {y2 2} } { ## Set and select an area of the display as a window
+		## ESC W n 1 x1 y1 x2 y2
+		## Windows may not overlap, invalid commands are ignored
+		## n = 1-4 (Window ID)
+		## 1 <= x1 <= x2 <= 20
+		## 1 <= y1 <= y2 <= 2
+		return [format "%c%c%c%c%c%c%c%c" 0x1b 0x57 $n 1 $x1 $y1 $x2 $y2 ]
+	}
+	proc dm_win_cancel {{n 1}} { ## Cancel window area
+		## ESC W n 0
+		## n = 1-4 (Window ID)
+		return [format "%c%c%c%c" 0x1b 0x57 $n 0 ]
+	}
+	proc dm_mode_overwrite {} { ## Set mode to endless overwrite
+		## US MD1
+		return [format "%c%c" 0x1f 0x01]
+	}
+	proc dm_mode_scroll_vert {} { ## Set mode to vertical scroll
+		## US MD2
+		return [format "%c%c" 0x1f 0x02]
+	}
+	proc dm_mode_scroll_hor {} { ## Set mode to horizontal scroll
+		## US MD3
+		return [format "%c%c" 0x1f 0x03]
+	}
 }
 
 namespace eval ::eptmpl {
@@ -357,15 +476,29 @@ namespace eval ::eptmpl {
 		return $ps
 	}
 
-	proc send {url data {do_init 1}} {
+	proc send {url data {do_init 1} {feed_n_cut 1}} {
 		set ps [openprinter $url]
 		if {$do_init} {
-			set data "[::escpos::init]$data[::escpos::feed 6][::escpos::cut]"
+			set data "[::escpos::init]$data"
+		}
+		if {$feed_n_cut} {
+			append data "[::escpos::feed 6][::escpos::cut]"
 		}
 		puts -nonewline $ps $data
 		close $ps
 	}
 
+	proc dm_send {url data {peripheral 1} {feed_n_cut -1}} {
+		if {$feed_n_cut == -1} {
+			if {$peripheral == 1 || $peripheral >= 3} {
+				set feed_n_cut 1
+			} else {
+				set feed_n_cut 0
+			}
+		}
+		send $url "[::escpos::dm_set_peripheral $peripheral][::escpos::init]$data" 0 $feed_n_cut
+	}
+	
 	## template helper functions
 	proc date {{format {%A %d. %b %Y %T}}} { return [clock format [clock seconds] -format $format] }
 
