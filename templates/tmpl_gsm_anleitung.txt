@@ -1,0 +1,47 @@
+[bitimg_nv 2]
+[set_font 62]GSM Registration[set_font 0]
+
+Starting with 27C3 the GSM handset
+registration is managed as self-service.
+Just follow this simple two-step process:
+
+1. Register a new extension with phone
+type "GSM". Give the system a couple
+of minutes to synchronize with our
+in-house GSM provider. Relax. Maybe have a
+nip of your favorite caffeinated beverage.
+
+2. You have to use the special sim card,
+sold at the previous CCC events or just
+buy a new one.
+
+3. Place a call to the number of the GSM
+token shown in the details view of your
+extension. This step completes the
+registration process and pairs your
+device/SIM with the event's GSM network.
+If you ever feel like switching devices
+or SIM cards, then just redial this number
+on your new device.
+
+[set_font 62]Notes[set_font 0]
+Of course, the registration can only
+succeed when operating within the correct
+GSM network, so please make sure your
+network provider has been selected
+accordingly before dialing any number.
+Selecting a network named 31C3 or some
+binary digits is probably not the
+worst choice.
+
+[set_font 62]Where can I find my
+GSM Token?[set_font 0]
+Log in to the eventphone.de website,
+then go to "My Extensions" and choose
+"details" next to a registered GSM
+extension.
+
+[set_font 62]More Notes[set_font 0]
+Please be aware, that your device may be
+monitored by fellow hackers for quality
+assurance and your own protection.
