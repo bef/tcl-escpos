@@ -1,0 +1,1 @@
+[exec figlet -w 43 {*}[lrange $::argv 1 end]]
