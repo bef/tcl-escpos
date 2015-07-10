@@ -1,4 +1,4 @@
 [left]left
 [center]center
-[set_bwinv]right
+[set_bwinv][right]right
 [format "\x1b\x61%c" 1]foo
