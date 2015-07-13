@@ -1,7 +1,6 @@
 ## Author: Ben Fuhrmannek <bef@eventphone.de>
-## Date: 2012-04-21
 ##
-## Copyright (c) 2012 Ben Fuhrmannek
+## Copyright (c) 2012-2015 Ben Fuhrmannek
 ## All rights reserved.
 ##
 ## Redistribution and use in source and binary forms, with or without
@@ -27,7 +26,7 @@
 ## SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-package provide escpos 0.1
+package provide escpos 0.2
 
 package require Tcl 8.5
 catch {package require tclgd}
@@ -107,9 +106,37 @@ namespace eval ::escpos {
 	proc set_pm {} { ## ESC L: Select page mode
 		return "\x1b\x4c"
 	}
-	proc set_font {n} { ## ESC M n: Select character font
-		return [format "\x1b\x4d%c" $n]
+	proc set_font {args} {
+		lassign $args n
+		## if n=0|1: ESC M n: Select character font
+		if {$n eq "0" || $n eq "1"} {
+			return [format "\x1b\x4d%c" $n]
+		}
+		
+		## otherwise: ESC ! n Batch print mode
+		## hex-mode
+		if {[llength $args] == 1 && [string range $n 0 1] eq "0x"} {
+			return [set_batch_print_mode [expr $n]]
+		}
+		
+		## list-mode
+		set n 0
+		foreach arg $args {
+			## possible args: no args = reset, (font)A (font)B, E(mphasize), T(all), W(ide), Q(uadruple), U(nderline)
+			switch -glob -- [string tolower $arg] {
+				b -
+				"font*b" { set n [expr {$n | (0xff & 0x1)}]}
+				e*       { set n [expr {$n | (0xff & 0x8)}] }
+				t*       { set n [expr {$n | (0xff & 0x10)}] }
+				w*       { set n [expr {$n | (0xff & 0x20)}] }
+				q*       { set n [expr {$n | (0xff & 0x30)}] }
+				u*       { set n [expr {$n | (0xff & 0x80)}] }
+			}
+		}
+		puts $n
+		return [set_batch_print_mode $n]
 	}
+	
 	proc small {} { return [set_font 1] }
 	proc normal {} { return [set_font 0] }
 	proc set_int_chars {n} { ## ESC R n: Select international characters
