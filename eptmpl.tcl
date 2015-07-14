@@ -108,18 +108,18 @@ namespace eval ::escpos {
 	}
 	proc set_font {args} {
 		lassign $args n
-		## if n=0|1: ESC M n: Select character font
+		## if n=0|1: ESC M n: Select character font, e.g. [set_font 0]
 		if {$n eq "0" || $n eq "1"} {
 			return [format "\x1b\x4d%c" $n]
 		}
 		
 		## otherwise: ESC ! n Batch print mode
-		## hex-mode
+		## hex-mode, e.g. [set_font 0xff]
 		if {[llength $args] == 1 && [string range $n 0 1] eq "0x"} {
 			return [set_batch_print_mode [expr $n]]
 		}
 		
-		## list-mode
+		## list-mode, e.g. [set_font emph tall underline]
 		set n 0
 		foreach arg $args {
 			## possible args: no args = reset, (font)A (font)B, E(mphasize), T(all), W(ide), Q(uadruple), U(nderline)
