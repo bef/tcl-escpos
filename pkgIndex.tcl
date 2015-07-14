@@ -1,1 +1,1 @@
-package ifneeded escpos 0.1 [list source [file join $dir eptmpl.tcl]]
+package ifneeded escpos 0.2 [list source [file join $dir eptmpl.tcl]]
