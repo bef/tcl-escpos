@@ -529,12 +529,12 @@ namespace eval ::eptmpl {
 	## template helper functions
 	proc date {{format {%A %d. %b %Y %T}}} { return [clock format [clock seconds] -format $format] }
 
-	proc foreachline {varlist elemlist output} {
-		set out ""
-		foreach $varlist $elemlist {
-			lappend out [subst $output]
+	proc foreachline {__varlist __elemlist __output} {
+		set __out ""
+		foreach $__varlist $__elemlist {
+			lappend __out [subst $__output]
 		}
-		return [join $out "\n"]
+		return [join $__out "\n"]
 	}
 
 	proc wrap {text {maxlen 42}} {
