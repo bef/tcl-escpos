@@ -1,5 +1,5 @@
 [bitimg_nv 2]
-[set_font 62]GSM Registration[set_font 0]
+[set_font 0x3E]GSM Registration[set_font]
 
 Starting with 27C3 the GSM handset
 registration is managed as self-service.
@@ -24,7 +24,7 @@ If you ever feel like switching devices
 or SIM cards, then just redial this number
 on your new device.
 
-[set_font 62]Notes[set_font 0]
+[set_font 0x3E]Notes[set_font]
 Of course, the registration can only
 succeed when operating within the correct
 GSM network, so please make sure your
@@ -34,14 +34,14 @@ Selecting a network named 31C3 or some
 binary digits is probably not the
 worst choice.
 
-[set_font 62]Where can I find my
-GSM Token?[set_font 0]
+[set_font 0x3E]Where can I find my
+GSM Token?[set_font]
 Log in to the eventphone.de website,
 then go to "My Extensions" and choose
 "details" next to a registered GSM
 extension.
 
-[set_font 62]More Notes[set_font 0]
+[set_font 0x3E]More Notes[set_font]
 Please be aware, that your device may be
 monitored by fellow hackers for quality
 assurance and your own protection.
