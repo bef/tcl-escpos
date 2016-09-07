@@ -13,7 +13,7 @@
 ##     * Neither the name of the author nor the
 ##       names of its contributors may be used to endorse or promote products
 ##       derived from this software without specific prior written permission.
-## 
+##
 ## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 ## ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
 ## WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -90,13 +90,13 @@ namespace eval ::escpos {
 		return "\x1b\x40"
 	}
 	## NOT IMPLEMENTED: ESC D n1...nk NUL: Set horizontal tab position
-	
+
 	proc set_emph_chars {n} { ## ESC E n: Specify/cancel emphasized characters
 		return [format "\x1b\x45%c" $n]
 	}
 	proc bold {} { return [set_emph_chars 1] }
 	proc unbold {} { return [set_emph_chars 0] }
-	
+
 	proc set_double_printing {n} { ## ESC G n: Specify/cancel emphasized characters
 		return [format "\x1b\x47%c" $n]
 	}
@@ -112,13 +112,13 @@ namespace eval ::escpos {
 		if {$n eq "0" || $n eq "1"} {
 			return [format "\x1b\x4d%c" $n]
 		}
-		
+
 		## otherwise: ESC ! n Batch print mode
 		## hex-mode, e.g. [set_font 0xff]
 		if {[llength $args] == 1 && [string range $n 0 1] eq "0x"} {
 			return [set_batch_print_mode [expr $n]]
 		}
-		
+
 		## list-mode, e.g. [set_font emph tall underline]
 		set n 0
 		foreach arg $args {
@@ -136,7 +136,7 @@ namespace eval ::escpos {
 		puts $n
 		return [set_batch_print_mode $n]
 	}
-	
+
 	proc small {} { return [set_font 1] }
 	proc normal {} { return [set_font 0] }
 	proc set_int_chars {n} { ## ESC R n: Select international characters
@@ -174,7 +174,7 @@ namespace eval ::escpos {
 		return [format "\x1b\x64%c" $n]
 	}
 	proc pulse {m t1 t2} { ## ESC p m t1 t2: Specify pulse
-		return [format "\x1b\x70%c%c%c" m t1 t2]
+		return [format "\x1b\x70%c%c%c" $m $t1 $t2]
 	}
 	proc set_codepage {n} { ## ESC t n: Select character code table
 		return [format "\x1b\x74%c" $n]
@@ -278,13 +278,13 @@ namespace eval ::escpos {
 		return [format "\x1d\x77%c" $n]
 	}
 	## not implemented: Chinese Character Control Commands
-	
+
 	proc img {fn {mode GSv0}} { ## load and print bit image
 		if {[info commands ::GD] eq ""} {
 			puts stderr "ERROR: tclgd library not loaded"
 			return ":("
 		}
-		
+
 		if {[catch {
 			if {$fn eq "-"} {
 				set fp stdin
@@ -295,7 +295,7 @@ namespace eval ::escpos {
 			puts stderr "ERROR: $fid"
 			return ":("
 		}
-		
+
 		fconfigure $fp -translation binary
 		GD create_from_png gdimg $fp
 		if {$fp ne "stdin"} { close $fp }
@@ -305,7 +305,7 @@ namespace eval ::escpos {
 		} else {
 			set threshold_color 1
 		}
-		
+
 		set da {}
 		set w_real [gdimg width]
 		set h_real [gdimg height]
@@ -344,7 +344,7 @@ namespace eval ::escpos {
 			}
 		}
 	}
-	
+
 	## Customer Display Commands
 	proc dm_cur_home {} {
 		## HOM
@@ -525,7 +525,7 @@ namespace eval ::eptmpl {
 		}
 		send $url "[::escpos::dm_set_peripheral $peripheral][::escpos::init]$data" 0 $feed_n_cut
 	}
-	
+
 	## template helper functions
 	proc date {{format {%A %d. %b %Y %T}}} { return [clock format [clock seconds] -format $format] }
 
