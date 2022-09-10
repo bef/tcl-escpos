@@ -552,5 +552,9 @@ namespace eval ::eptmpl {
 		return $text
 	}
 
+	proc umlautmap {text} {
+		return [string map {ä "\x84" ö "\x94" ü "\x81" Ä "\x8E" Ö "\x99" Ü "\x9A" ß "\xE1"} $text]]
+	}
+
 }
 
