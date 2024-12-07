@@ -1,4 +1,7 @@
-#!/usr/bin/env tclsh8.5
+#!/bin/sh
+# -*- tcl -*-
+# The next line restarts using the best available tclsh \
+exec $(command -v tclsh9.0 || command -v tclsh8.6 || command -v tclsh) "$0" ${1+"$@"}
 ## Author: Ben Fuhrmannek <bef@eventphone.de>
 ## Date: 2013-03-24
 ##

@@ -28,7 +28,7 @@
 
 package provide escpos 0.2
 
-package require Tcl 8.5
+package require Tcl 8.5-
 catch {package require tclgd}
 
 namespace eval ::escpos {
@@ -499,7 +499,10 @@ namespace eval ::eptmpl {
 			}
 			default {error "unrecognised printer url $url"}
 		}
-		fconfigure $ps -translation binary -encoding binary -buffering none
+		fconfigure $ps -translation binary -buffering none
+		if {[package vcompare $::tcl_version 9.0] < 0} {
+			fconfigure $ps -encoding binary
+		}
 		return $ps
 	}
 
