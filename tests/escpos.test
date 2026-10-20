@@ -1,0 +1,262 @@
+## byte-level tests for the escpos command library
+## run: tclsh tests/escpos.test
+
+package require tcltest
+namespace import ::tcltest::*
+
+set basedir [file dirname [file dirname [file normalize [info script]]]]
+source [file join $basedir eptmpl.tcl]
+namespace import ::escpos::*
+
+proc hex {s} {
+	binary scan $s H* h
+	return $h
+}
+
+## write a w*h PNG with the given black pixels to a temp file, return its name
+proc testpng {w h pixels} {
+	GD create_truecolor tpng $w $h
+	set white [tpng allocate_color 255 255 255]
+	set black [tpng allocate_color 0 0 0]
+	tpng filled_rectangle 0 0 [expr {$w-1}] [expr {$h-1}] $white
+	foreach {x y} $pixels { tpng pixel $x $y $black }
+	set fp [file tempfile fn]
+	fconfigure $fp -translation binary
+	puts -nonewline $fp [tpng png_data 9]
+	close $fp
+	tpng delete
+	return $fn
+}
+
+testConstraint tclgd [expr {[info commands ::GD] ne ""}]
+
+## fixed commands
+
+test barcode-1 {GS k function A ends with NUL} {
+	hex [barcode 4 AB]
+} 1d6b04414200
+test barcode-2 {GS k function B sends byte length (Tcl 9 safe)} {
+	hex [barcode 73 "\{B123"]
+} 1d6b49057b42313233
+
+test rel_pos-1 {ESC \ positive} {
+	hex [rel_pos 300]
+} 1b5c2c01
+test rel_pos-2 {ESC \ negative uses two's complement} {
+	hex [rel_pos -10]
+} 1b5cf6ff
+test set_abs_pos-1 {ESC $} {
+	hex [set_abs_pos 256]
+} 1b240001
+
+test set_font-1 {ESC M font A} {
+	hex [set_font 0]
+} 1b4d00
+test set_font-2 {ESC M with ASCII digit} {
+	hex [set_font 48]
+} 1b4d30
+test set_font-3 {ESC M font C} {
+	hex [set_font 2]
+} 1b4d02
+test set_font-4 {ESC M extended font} {
+	hex [set_font 97]
+} 1b4d61
+test set_font-5 {ESC ! list mode, no stdout output} -body {
+	hex [set_font b e q u]
+} -result 1b21b9 -output {}
+test set_font-6 {ESC ! hex mode} {
+	hex [set_font 0x3E]
+} 1b213e
+test set_font-7 {ESC ! reset} -body {
+	hex [set_font]
+} -result 1b2100 -output {}
+
+test cut-1 {GS V function A} {
+	hex [cut]
+} 1d5600
+test cut-2 {GS V function A partial} {
+	hex [cut 1]
+} 1d5601
+test cut-3 {GS V function B} {
+	hex [cut 66 3]
+} 1d564203
+test cut-4 {GS V function C} {
+	hex [cut 97 5]
+} 1d566105
+test cut-5 {GS V function D} {
+	hex [cut 104 0]
+} 1d566800
+
+test bwinv-1 {GS B off, both spellings} {
+	list [hex [unset_bwinv]] [hex [unset_wbinv]]
+} {1d4200 1d4200}
+
+test dm-1 {US B} { hex [dm_cur_end] } 1f42
+test dm-2 {US CR} { hex [dm_cur_line_end] } 1f0d
+test dm-3 {US LF} { hex [dm_cur_up] } 1f0a
+
+test umlautmap-1 {code page 437 umlauts, nothing appended} {
+	hex [eptmpl::umlautmap "aäÖß"]
+} 618499e1
+
+## 2D codes
+
+test qrcode-1 {GS ( k QR code with defaults} {
+	hex [qrcode AB]
+} [join {
+	1d286b0400314132 00
+	1d286b0300314306
+	1d286b0300314531
+	1d286b0500315030 4142
+	1d286b0300315130
+} ""]
+test qrcode-2 {GS ( k QR code options} {
+	string range [hex [qrcode A 3 H 1]] 0 47
+} 1d286b0400314131001d286b03003143031d286b03003145
+test qrcode-3 {GS ( k QR store length is data + 3} {
+	string range [hex [qrcode [string repeat x 300]]] 50 63
+} 1d286b2f013150
+test qrcode-4 {invalid error correction level} -body {
+	qrcode A 6 X
+} -returnCodes error -match glob -result {*error correction*}
+
+test pdf417-1 {GS ( k PDF417 with defaults} {
+	hex [pdf417 AB]
+} [join {
+	1d286b0300304100
+	1d286b0300304200
+	1d286b0300304303
+	1d286b0300304403
+	1d286b040030453031
+	1d286b0500305030 4142
+	1d286b0300305130
+} ""]
+
+## print position, page mode
+
+test tabs-1 {ESC D} { hex [set_tabs 8 16 24] } 1b4408101800
+test tabs-2 {ESC D clear} { hex [set_tabs] } 1b4400
+test ht-1 {HT} { hex [ht] } 09
+test lf-1 {LF} { hex [lf] } 0a
+test pm_area-1 {ESC W} {
+	hex [pm_area 0 0 512 400]
+} 1b570000000000029001
+test pm_abs_vpos-1 {GS $} { hex [pm_abs_vpos 100] } 1d246400
+test pm_rel_vpos-1 {GS \ negative} { hex [pm_rel_vpos -1] } 1d5cffff
+
+## macro, real-time, status
+
+test macro_exec-1 {GS ^} { hex [macro_exec 2 10 0] } 1d5e020a00
+test rt_poweroff-1 {DLE DC4 fn=2} { hex [rt_poweroff] } 1014020108
+test rt_clear_buffers-1 {DLE DC4 fn=8} {
+	hex [rt_clear_buffers]
+} 10140801031401060208
+test rt_buzzer_stop-1 {DLE DC4 fn=3} { hex [rt_buzzer_stop] } 1014030000000100
+test set_asb-1 {GS a} { hex [set_asb 15] } 1d610f
+test request_process_id-1 {GS ( H fn=48} {
+	hex [request_process_id ABCD]
+} 1d28480600303041424344
+test rt_enable-1 {GS ( D} {
+	hex [rt_enable 1 1 2 0]
+} 1d284405001401010200
+
+## misc
+
+test beep-1 {ESC ( A fn=97} { hex [beep 3 2] } 1b28410300610302
+test print_control-1 {GS ( K fn=48} { hex [set_print_control 1] } 1d284b02003001
+test print_density-1 {GS ( K fn=49 negative} { hex [set_print_density -2] } 1d284b020031fe
+test print_speed-1 {GS ( K fn=50} { hex [set_print_speed 5] } 1d284b02003205
+test char_color-1 {GS ( N fn=48} { hex [set_char_color 50] } 1d284e02003032
+test bg_color-1 {GS ( N fn=49} { hex [set_bg_color 48] } 1d284e02003130
+test shading-1 {GS ( N fn=50} { hex [set_shading 1 49] } 1d284e0300320131
+test test_print-1 {GS ( A} { hex [test_print 2 3] } 1d284102000203
+test maint-1 {GS g 0} { hex [maint_counter_init 20] } 1d6730001400
+test maint-2 {GS g 2} { hex [maint_counter_send 148] } 1d6732009400
+test user_setup-1 {GS ( E} { hex [user_setup 1 IN] } 1d2845030001494e
+test nv_memory-1 {GS ( C} {
+	hex [nv_memory 48 "\x00AB"]
+} 1d284305000030004142
+test rev_feed-1 {ESC K} { hex [rev_feed 10] } 1b4b0a
+test rev_feed_lines-1 {ESC e} { hex [rev_feed_lines 2] } 1b6502
+test unidir-1 {ESC U} { hex [set_unidir 1] } 1b5501
+test home-1 {ESC <} { hex [home] } 1b3c
+test paper_type-1 {ESC c 0} { hex [set_paper_type 4] } 1b633004
+test paper_cmd-1 {ESC c 1} { hex [set_paper_cmd 4] } 1b633104
+test define_chars-1 {ESC &} {
+	hex [define_chars 3 65 66 {1 2 3 4 5 6} {7 8 9}]
+} 1b260341420201020304050601070809
+
+## graphics by key code
+
+test nv_graphics_print-1 {GS ( L fn=69} { hex [nv_graphics_print A1] } 1d284c0600304541310101
+test nv_graphics_print-2 {GS ( L fn=69 doubled} { hex [nv_graphics_print A1 2 2] } 1d284c0600304541310202
+test nv_graphics_delete-1 {GS ( L fn=65} { hex [nv_graphics_delete] } 1d284c05003041434c52
+test nv_graphics_delete-2 {GS ( L fn=66} { hex [nv_graphics_delete A1] } 1d284c040030424131
+test dl_graphics_print-1 {GS ( L fn=85} { hex [dl_graphics_print A1] } 1d284c0600305541310101
+test dl_graphics_delete-1 {GS ( L fn=81} { hex [dl_graphics_delete] } 1d284c05003051434c52
+test dl_graphics_delete-2 {GS ( L fn=82} { hex [dl_graphics_delete A1] } 1d284c040030524131
+test gsL-1 {GS 8 L for data larger than 65535 bytes} {
+	set s [::escpos::_gsL [string repeat x 70000]]
+	list [hex [string range $s 0 6]] [string length $s]
+} {1d384c70110100 70007}
+test kc-1 {key code must have 2 characters} -body {
+	nv_graphics_print A
+} -returnCodes error -match glob -result {*key code*}
+
+## images: 10x9 image, black pixels at (0,0) (9,0) (0,8)
+
+set png [testpng 10 9 {0 0 9 0 0 8}]
+
+test img-1 {GS v 0, width aligned to 32 dots} -constraints tclgd -body {
+	set h [hex [img $png]]
+	list [string range $h 0 15] [string range $h 16 23] [string range $h 24 31] [string range $h end-7 end] [string length $h]
+} -result {1d76300004000900 80400000 00000000 80000000 88}
+
+test img-2 {GS ( L fn=112 + fn=50, width aligned to 8 dots} -constraints tclgd -body {
+	## 16 dots -> 2 bytes/row, 9 rows = 18 bytes; payload 10 + 18 = 28
+	set h [hex [img $png GSL]]
+	list [string range $h 0 29] [string range $h 30 33] [string range $h end-13 end] [string length $h]
+} -result {1d284c1c0030703001013110000900 8040 1d284c02003032 80}
+
+test img-3 {raw mode unchanged} -constraints tclgd -body {
+	lrange [img $png raw] 0 1
+} -result {32 9}
+
+test bitimg_esc-1 {ESC * 24-dot column bands} -constraints tclgd -body {
+	set h [hex [bitimg_esc $png]]
+	list [string range $h 0 5] [string range $h 6 15] [string range $h 16 21] [string range $h 22 27] [string range $h end-5 end] [string length $h]
+} -result {1b3318 1b2a211000 808000 000000 0a1b32 118}
+
+test bitimg_dl_define-1 {GS * column format} -constraints tclgd -body {
+	set h [hex [bitimg_dl_define $png]]
+	## x=2 (16 dots), y=2 (16 dots): 16 columns * 2 bytes
+	list [string range $h 0 7] [string range $h 8 15] [string range $h 44 47] [string length $h]
+} -result {1d2a0202 80800000 8000 72}
+
+test bitimg_nv_define-1 {FS q with two images} -constraints tclgd -body {
+	set h [hex [bitimg_nv_define $png $png]]
+	list [string range $h 0 5] [string range $h 6 13] [string range $h 14 21] [string length $h]
+} -result {1c7102 02000200 80800000 150}
+
+test nv_graphics_define-1 {GS ( L fn=67 raster format} -constraints tclgd -body {
+	set h [hex [nv_graphics_define A1 $png]]
+	## 16 dots -> 2 bytes/row, 9 rows = 18 bytes; payload 11 + 18 = 29
+	list [string range $h 0 29] [string range $h 30 31] [string length $h]
+} -result {1d284c1d0030433041310110000900 31 68}
+
+test dl_graphics_define-1 {GS ( L fn=83} -constraints tclgd -body {
+	string range [hex [dl_graphics_define A1 $png]] 0 15
+} -result 1d284c1d00305330
+
+file delete $png
+
+## templates parse without errors
+
+foreach tmpl {align barcodetest font lorem rot90 subst qrcode_native pdf417} {
+	test template-$tmpl "template tmpl_$tmpl.txt parses" -body {
+		set text [eptmpl::readfile [file join $::basedir templates tmpl_$tmpl.txt]]
+		string length [eptmpl::parse $text]
+	} -match glob -result {[1-9]*}
+}
+
+cleanupTests

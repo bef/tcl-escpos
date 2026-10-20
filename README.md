@@ -34,6 +34,14 @@ results in
 
 See template examples in the `templates` directory for a bunch of examples.
 
+Each ESC/POS command is a proc in `eptmpl.tcl`, annotated with its command name, e.g. `[qrcode "https://example.com"]` (GS ( k), `[pdf417 data]`, `[set_tabs 8 16]` (ESC D) or `[nv_graphics_print A1]` (GS ( L).
+PNG images (requires tclgd) can be printed with `[img file.png]` using GS v 0, or with `[img file.png GSL]` using the newer GS ( L graphics commands.
+
+Tests
+-----
+
+    tclsh tests/escpos.test
+
 Contributors
 ============
 

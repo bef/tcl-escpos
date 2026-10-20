@@ -34,9 +34,34 @@ catch {package require tclgd}
 namespace eval ::escpos {
 	namespace export *
 
-	proc _nLnH {n} { return [list [expr {$n % 256}] [expr {$n / 256}]] }
+	## 16 bit little endian parameter, negative values as two's complement
+	proc _nLnH {n} { set n [expr {$n & 0xffff}]; return [list [expr {$n % 256}] [expr {$n / 256}]] }
 
-	proc ff {} { ## FF: Print and recover to page mode
+	## commands with pL pH length prefix, e.g. GS ( k pL pH cn fn ...
+	proc _fn {prefix data} {
+		return "$prefix[format %c%c {*}[_nLnH [string length $data]]]$data"
+	}
+
+	## GS ( L pL pH ... or GS 8 L p1 p2 p3 p4 ... for large graphics data
+	proc _gsL {data} {
+		set len [string length $data]
+		if {$len <= 0xffff} { return [_fn "\x1d\x28\x4c" $data] }
+		return "\x1d\x38\x4c[binary format i $len]$data"
+	}
+
+	## key code for NV/download graphics: 2 characters
+	proc _kc {kc} {
+		if {[string length $kc] != 2} { error "key code must have 2 characters: $kc" }
+		return $kc
+	}
+
+	proc ht {} { ## HT: Horizontal tab
+		return "\x09"
+	}
+	proc lf {} { ## LF: Print and line feed
+		return "\x0a"
+	}
+	proc ff {} { ## FF: Print and return to standard mode (in page mode)
 		return "\x0c"
 	}
 	proc cr {} { ## CR: Print and carriage return
@@ -54,6 +79,15 @@ namespace eval ::escpos {
 	proc rt_pulse {n m t} { ## DLE DC4 n m t: Real-time output of specified pulse
 		return [format "\x10\x14%c%c%c" $n $m $t]
 	}
+	proc rt_poweroff {} { ## DLE DC4 2 1 8: Execute power-off sequence
+		return "\x10\x14\x02\x01\x08"
+	}
+	proc rt_buzzer_stop {} { ## DLE DC4 3 0 0 0 1 0: Stop sounding external buzzer
+		return "\x10\x14\x03\x00\x00\x00\x01\x00"
+	}
+	proc rt_clear_buffers {} { ## DLE DC4 8 1 3 20 1 6 2 8: Clear buffers
+		return "\x10\x14\x08\x01\x03\x14\x01\x06\x02\x08"
+	}
 	proc pm_print {} { ## ESC FF: Print data in page mode
 		return "\x1b\x0c"
 	}
@@ -69,8 +103,30 @@ namespace eval ::escpos {
 	proc set_dl_charset {n} { ## ESC % n: Specify/cancel download character set
 		return [format "\x1b\x25%c" $n]
 	}
-	## NOT IMPLEMENTED: ESC& yc1c2 [x1d1...d (y x x1) ] ... [axd1...d (yxax)]: Define download characters
-	## NOT IMPLEMENTED: ESC * m nL nH d1...dk: Specify bit image mode
+	proc define_chars {y c1 c2 args} { ## ESC & y c1 c2 [x d1...d(y*x)]...: Define download characters
+		## each arg is the column data of one character, y bytes per column
+		if {[llength $args] != $c2 - $c1 + 1} { error "expected [expr {$c2 - $c1 + 1}] character patterns" }
+		set out [format "\x1b\x26%c%c%c" $y $c1 $c2]
+		foreach d $args {
+			append out [binary format cc* [expr {[llength $d] / $y}] $d]
+		}
+		return $out
+	}
+	proc bitimg_esc {fn {m 33}} { ## ESC * m nL nH d1...dk: Specify bit image mode, all bands of an image
+		## m = 0, 1: 8 dot bands, m = 32, 33: 24 dot bands
+		set band [expr {$m < 32 ? 8 : 24}]
+		lassign [_img_load $fn 8] w h da
+		if {$w eq ""} { return ":(" }
+		set out [set_linefeed 24]
+		foreach cols [_img_columns $w $h $da $band] {
+			append out [format "\x1b\x2a%c%c%c" $m {*}[_nLnH $w]] [binary format c* $cols] "\n"
+		}
+		append out [set_default_linespacing]
+		return $out
+	}
+	proc beep {n {c 1}} { ## ESC ( A 3 0 97 n c: Sound external buzzer
+		return [_fn "\x1b\x28\x41" [format "\x61%c%c" $n $c]]
+	}
 	proc ul {n} { ## ESC - n: Specify/cancels underline mode
 		return [format "\x1b\x2d%c" $n]
 	}
@@ -89,7 +145,13 @@ namespace eval ::escpos {
 	proc init {} { ## ESC @: Initialize printer
 		return "\x1b\x40"
 	}
-	## NOT IMPLEMENTED: ESC D n1...nk NUL: Set horizontal tab position
+	proc home {} { ## ESC <: Return home
+		return "\x1b\x3c"
+	}
+	proc set_tabs {args} { ## ESC D n1...nk NUL: Set horizontal tab position
+		## no args: clear all tab positions
+		return "\x1b\x44[binary format c* $args]\x00"
+	}
 
 	proc set_emph_chars {n} { ## ESC E n: Specify/cancel emphasized characters
 		return [format "\x1b\x45%c" $n]
@@ -97,19 +159,22 @@ namespace eval ::escpos {
 	proc bold {} { return [set_emph_chars 1] }
 	proc unbold {} { return [set_emph_chars 0] }
 
-	proc set_double_printing {n} { ## ESC G n: Specify/cancel emphasized characters
+	proc set_double_printing {n} { ## ESC G n: Specify/cancel double-strike printing
 		return [format "\x1b\x47%c" $n]
 	}
 	proc print_feed {n} { ## ESC J n: Print and Paper Feed
 		return [format "\x1b\x4a%c" $n]
+	}
+	proc rev_feed {n} { ## ESC K n: Print and reverse feed
+		return [format "\x1b\x4b%c" $n]
 	}
 	proc set_pm {} { ## ESC L: Select page mode
 		return "\x1b\x4c"
 	}
 	proc set_font {args} {
 		lassign $args n
-		## if n=0|1: ESC M n: Select character font, e.g. [set_font 0]
-		if {$n eq "0" || $n eq "1"} {
+		## font A, B, C, extended fonts: ESC M n: Select character font, e.g. [set_font 0]
+		if {$n in {0 1 2 48 49 50 97 98}} {
 			return [format "\x1b\x4d%c" $n]
 		}
 
@@ -133,7 +198,6 @@ namespace eval ::escpos {
 				u*       { set n [expr {$n | (0xff & 0x80)}] }
 			}
 		}
-		puts $n
 		return [set_batch_print_mode $n]
 	}
 
@@ -148,10 +212,15 @@ namespace eval ::escpos {
 	proc set_direction {n} { ## ESC T n: Select character print direction in page mode
 		return [format "\x1b\x54%c" $n]
 	}
+	proc set_unidir {n} { ## ESC U n: Turn unidirectional printing mode on/off
+		return [format "\x1b\x55%c" $n]
+	}
 	proc set_charrot90 {n} { ## ESC V n: Specify/cancel character 90 degree clockwise rotation
 		return [format "\x1b\x56%c" $n]
 	}
-	## NOT IMPLEMENTED: ESC W xL xH yL yH dxL dxH dyL dyH: Set print region in page mode
+	proc pm_area {x y dx dy} { ## ESC W xL xH yL yH dxL dxH dyL dyH: Set print region in page mode
+		return [format "\x1b\x57%c%c%c%c%c%c%c%c" {*}[_nLnH $x] {*}[_nLnH $y] {*}[_nLnH $dx] {*}[_nLnH $dy]]
+	}
 	proc rel_pos {n} { ## ESC \ nL nH: Specify relative position
 		return [format "\x1b\x5c%c%c" {*}[_nLnH $n]]
 	}
@@ -161,6 +230,12 @@ namespace eval ::escpos {
 	proc left {} { return [align 0] }
 	proc center {} { return [align 1] }
 	proc right {} { return [align 2] }
+	proc set_paper_type {n} { ## ESC c 0 n: Select paper type(s) for printing
+		return [format "\x1b\x63\x30%c" $n]
+	}
+	proc set_paper_cmd {n} { ## ESC c 1 n: Select paper type(s) for command settings
+		return [format "\x1b\x63\x31%c" $n]
+	}
 	proc set_paperout_signal {n} { ## ESC c 3 n: Select paper out sensor to enable at paper out signal output
 		return [format "\x1b\x63\x33%c" $n]
 	}
@@ -173,6 +248,9 @@ namespace eval ::escpos {
 	proc feed {{n 2}} { ## ESC d n: Print and feed paper n lines
 		return [format "\x1b\x64%c" $n]
 	}
+	proc rev_feed_lines {n} { ## ESC e n: Print and reverse feed n lines
+		return [format "\x1b\x65%c" $n]
+	}
 	proc pulse {m t1 t2} { ## ESC p m t1 t2: Specify pulse
 		return [format "\x1b\x70%c%c%c" $m $t1 $t2]
 	}
@@ -182,20 +260,92 @@ namespace eval ::escpos {
 	proc set_usd {n} { ## ESC 0x7b n: Specify/cancel upside-down printing
 		return [format "\x1b\x7b%c" $n]
 	}
-	## NOT IMPLEMENTED: FS g 1 m a1 a2 a3 a4 nL nH d1 ... dk: Write data to user NV memory
-	## NOT IMPLEMENTED: FS g 2 m a1 a2 a3 a4 nL nH: Read user NV memory data
+	## NOT IMPLEMENTED (obsolete, use nv_memory): FS g 1 m a1 a2 a3 a4 nL nH d1 ... dk: Write data to user NV memory
+	## NOT IMPLEMENTED (obsolete, use nv_memory): FS g 2 m a1 a2 a3 a4 nL nH: Read user NV memory data
 	proc bitimg_nv {n {m 0}} { ## FS p n m: Print NV bit image
 		return [format "\x1c\x70%c%c" $n $m]
 	}
-	## NOT IMPLEMENTED: FS q n [xL xH yL yH d1...dk] 1... [xL xH yL yH d1...dk] n: Define NV bit image
+	proc bitimg_nv_define {args} { ## FS q n [xL xH yL yH d1...dk]1...[xL xH yL yH d1...dk]n: Define NV bit image
+		## args: image files, defined as NV bit image 1...n
+		set out [format "\x1c\x71%c" [llength $args]]
+		foreach fn $args {
+			set img [_img_colimage $fn]
+			if {$img eq ""} { return ":(" }
+			lassign $img x y d
+			append out [format "%c%c%c%c" {*}[_nLnH $x] {*}[_nLnH $y]] $d
+		}
+		return $out
+	}
 	proc set_size {n} { ## GS ! n: Select character size
 		return [format "\x1d\x21%c" $n]
 	}
-	## NOT IMPLEMENTED: GS $ nL nH: Specify absolute position for character vertical direction in page mode
-	## NOT IMPLEMENTED: GS * xy d1...d (xX yX 8): Define download bit images
-	## NOT IMPLEMENTED: GS ( A pL pH n m: Test print
-	## NOT IMPLEMENTED: GS ( K pL pH n m: Set print density
-	## NOT IMPLEMENTED: GS ( N pL pH n m: Specify print color
+	proc pm_abs_vpos {n} { ## GS $ nL nH: Specify absolute position for character vertical direction in page mode
+		return [format "\x1d\x24%c%c" {*}[_nLnH $n]]
+	}
+	proc bitimg_dl_define {fn} { ## GS * x y d1...d(x*y*8): Define download bit images
+		set img [_img_colimage $fn]
+		if {$img eq ""} { return ":(" }
+		lassign $img x y d
+		return "[format "\x1d\x2a%c%c" $x $y]$d"
+	}
+	proc test_print {n m} { ## GS ( A 2 0 n m: Test print
+		return [_fn "\x1d\x28\x41" [format "%c%c" $n $m]]
+	}
+	proc nv_memory {fn {data {}}} { ## GS ( C pL pH 0 fn [parameters]: Edit NV user memory
+		return [_fn "\x1d\x28\x43" "[format "\x00%c" $fn]$data"]
+	}
+	proc rt_enable {args} { ## GS ( D pL pH 20 [a1 b1]...[ak bk]: Enable/disable real-time commands
+		return [_fn "\x1d\x28\x44" "\x14[binary format c* $args]"]
+	}
+	proc user_setup {fn {data {}}} { ## GS ( E pL pH fn [parameters]: Set user setup commands
+		return [_fn "\x1d\x28\x45" "[format %c $fn]$data"]
+	}
+	proc request_process_id {id} { ## GS ( H 6 0 48 48 d1 d2 d3 d4: Request transmission of response or status
+		if {[string length $id] != 4} { error "process id must have 4 characters: $id" }
+		return [_fn "\x1d\x28\x48" "\x30\x30$id"]
+	}
+	proc set_print_control {m} { ## GS ( K 2 0 48 m: Select print control mode
+		return [_fn "\x1d\x28\x4b" [format "\x30%c" $m]]
+	}
+	proc set_print_density {m} { ## GS ( K 2 0 49 m: Select print density, m = -6...6
+		return [_fn "\x1d\x28\x4b" [format "\x31%c" [expr {$m & 0xff}]]]
+	}
+	proc set_print_speed {m} { ## GS ( K 2 0 50 m: Select print speed
+		return [_fn "\x1d\x28\x4b" [format "\x32%c" $m]]
+	}
+	proc nv_graphics_define {kc fn} { ## GS ( L / GS 8 L ... 48 67 48 kc1 kc2 b xL xH yL yH c d1...dk: Define NV graphics data (raster format)
+		set img [_img_load $fn 8]
+		if {$img eq ""} { return ":(" }
+		return [_gsL "\x30\x43\x30[_kc $kc]\x01[_img_rasterdata {*}$img]"]
+	}
+	proc nv_graphics_delete {{kc {}}} { ## GS ( L 5 0 48 65 "CLR" / GS ( L 4 0 48 66 kc1 kc2: Delete all/specified NV graphics data
+		if {$kc eq ""} { return [_gsL "\x30\x41\x43\x4c\x52"] }
+		return [_gsL "\x30\x42[_kc $kc]"]
+	}
+	proc nv_graphics_print {kc {x 1} {y 1}} { ## GS ( L 6 0 48 69 kc1 kc2 x y: Print NV graphics data
+		return [_gsL "\x30\x45[_kc $kc][format %c%c $x $y]"]
+	}
+	proc dl_graphics_delete {{kc {}}} { ## GS ( L 5 0 48 81 "CLR" / GS ( L 4 0 48 82 kc1 kc2: Delete all/specified download graphics data
+		if {$kc eq ""} { return [_gsL "\x30\x51\x43\x4c\x52"] }
+		return [_gsL "\x30\x52[_kc $kc]"]
+	}
+	proc dl_graphics_define {kc fn} { ## GS ( L / GS 8 L ... 48 83 48 kc1 kc2 b xL xH yL yH c d1...dk: Define download graphics data (raster format)
+		set img [_img_load $fn 8]
+		if {$img eq ""} { return ":(" }
+		return [_gsL "\x30\x53\x30[_kc $kc]\x01[_img_rasterdata {*}$img]"]
+	}
+	proc dl_graphics_print {kc {x 1} {y 1}} { ## GS ( L 6 0 48 85 kc1 kc2 x y: Print download graphics data
+		return [_gsL "\x30\x55[_kc $kc][format %c%c $x $y]"]
+	}
+	proc set_char_color {n} { ## GS ( N 2 0 48 n: Select character color
+		return [_fn "\x1d\x28\x4e" [format "\x30%c" $n]]
+	}
+	proc set_bg_color {n} { ## GS ( N 2 0 49 n: Select background color
+		return [_fn "\x1d\x28\x4e" [format "\x31%c" $n]]
+	}
+	proc set_shading {m n} { ## GS ( N 3 0 50 m n: Turn shading mode on/off
+		return [_fn "\x1d\x28\x4e" [format "\x32%c%c" $m $n]]
+	}
 	proc bitimg_dl {m} { ## GS / m: Print download bit images
 		return [format "\x1d\x2f%c" $m]
 	}
@@ -205,6 +355,7 @@ namespace eval ::escpos {
 	proc set_bwinv {{n 1}} { ## GS B n: Specify/cancel white/black inverted printing
 		return [format "\x1d\x42%c" $n]
 	}
+	proc unset_bwinv {} { return [set_bwinv 0] }
 	proc unset_wbinv {} { return [set_bwinv 0] }
 	proc set_cpm {n m} { ## GS C 0 n m: Set counter print mode
 		return [format "\x1d\x43\x30%c%c" $n $m]
@@ -216,7 +367,7 @@ namespace eval ::escpos {
 		return [format "\x1d\x43\x32%c%c" {*}[_nLnH $n]]
 	}
 	## NOT IMPLEMENTED: GS C ; sa; sb; sn; sr; sc;: Set Counter Mode (B)
-	proc set_speed {n} { ## GS E n: Set printing speed
+	proc set_speed {n} { ## GS E n: Select head control method (obsolete, see set_print_speed)
 		return [format "\x1d\x45%c" $n]
 	}
 	proc set_hri {n} { ## GS H n: Set HRI character print position
@@ -228,14 +379,15 @@ namespace eval ::escpos {
 	proc set_left_margin {n} { ## GS L nL nH: Set left margin
 		return [format "\x1d\x4c%c%c" {*}[_nLnH $n]]
 	}
-	proc set_bcp {x y} { ## GS P x y: Set basic calculated pitch
+	proc set_bcp {x y} { ## GS P x y: Set horizontal and vertical motion units
 		return [format "\x1d\x50%c%c" $x $y]
 	}
 	proc move_top {n} { ## GS T n: Move to top of line
 		return [format "\x1d\x54%c" $n]
 	}
-	proc cut {{m 0} {n 0}} { ## GS V m: Cut paper
-		if {$m == 65 || $m == 66} {
+	proc cut {{m 0} {n 0}} { ## GS V m / GS V m n: Cut paper
+		## function B (m=65,66), C (m=97,98) and D (m=103,104) take n
+		if {$m in {65 66 97 98 103 104}} {
 			return [format "\x1d\x56%c%c" $m $n]
 		} else {
 			return [format "\x1d\x56%c" $m]
@@ -244,9 +396,15 @@ namespace eval ::escpos {
 	proc set_prw {n} { ## GS W nL nH: Set print region width
 		return [format "\x1d\x57%c%c" {*}[_nLnH $n]]
 	}
-	## NOT IMPLEMENTED: GS \ nL nH: Specify relative position for character vertical direction in page mode
-	## NOT IMPLEMENTED: GS ^ r t m: Execute macro
-	## NOT IMPLEMENTED: GS a n: Enable/disable transmission of automatic status
+	proc pm_rel_vpos {n} { ## GS \ nL nH: Specify relative position for character vertical direction in page mode
+		return [format "\x1d\x5c%c%c" {*}[_nLnH $n]]
+	}
+	proc macro_exec {r t m} { ## GS ^ r t m: Execute macro
+		return [format "\x1d\x5e%c%c%c" $r $t $m]
+	}
+	proc set_asb {n} { ## GS a n: Enable/disable transmission of automatic status
+		return [format "\x1d\x61%c" $n]
+	}
 	proc set_smoothing {n} { ## GS b n: Specify/cancel smoothing
 		return [format "\x1d\x62%c" $n]
 	}
@@ -256,6 +414,12 @@ namespace eval ::escpos {
 	proc set_hri_font {n} { ## GS f n: Select HRI character font
 		return [format "\x1d\x66%c" $n]
 	}
+	proc maint_counter_init {n} { ## GS g 0 0 nL nH: Initialize maintenance counter
+		return [format "\x1d\x67\x30\x00%c%c" {*}[_nLnH $n]]
+	}
+	proc maint_counter_send {n} { ## GS g 2 0 nL nH: Transmit maintenance counter
+		return [format "\x1d\x67\x32\x00%c%c" {*}[_nLnH $n]]
+	}
 	proc set_barcode_height {n} { ## GS h n: Set bar code height
 		return [format "\x1d\x68%c" $n]
 	}
@@ -263,8 +427,32 @@ namespace eval ::escpos {
 		if {$m <= 6} {
 			return [format "\x1d\x6b%c%s\x00" $m $foo]
 		} else {
-			return [format "\x1d\x6b%c%c%s" $m [string bytelength $foo] $foo]
+			return [format "\x1d\x6b%c%c%s" $m [string length $foo] $foo]
 		}
+	}
+	proc qrcode {data {size 6} {ecc M} {model 2}} { ## GS ( k pL pH 49 fn ...: QR Code
+		## size: module size 1-16, ecc: error correction level L, M, Q, H, model: 1, 2
+		set ecc [lsearch {L M Q H} [string toupper $ecc]]
+		if {$ecc < 0} { error "invalid error correction level, must be L, M, Q or H" }
+		set k "\x1d\x28\x6b"
+		return [join [list \
+			[_fn $k [format "\x31\x41%c\x00" [expr {48 + $model}]]] \
+			[_fn $k [format "\x31\x43%c" $size]] \
+			[_fn $k [format "\x31\x45%c" [expr {48 + $ecc}]]] \
+			[_fn $k "\x31\x50\x30$data"] \
+			[_fn $k "\x31\x51\x30"]] ""]
+	}
+	proc pdf417 {data {cols 0} {rows 0} {width 3} {rowh 3} {ecc 1}} { ## GS ( k pL pH 48 fn ...: PDF417
+		## cols, rows: 0 = automatic, width: module width, rowh: row height, ecc: error correction level 0-8
+		set k "\x1d\x28\x6b"
+		return [join [list \
+			[_fn $k [format "\x30\x41%c" $cols]] \
+			[_fn $k [format "\x30\x42%c" $rows]] \
+			[_fn $k [format "\x30\x43%c" $width]] \
+			[_fn $k [format "\x30\x44%c" $rowh]] \
+			[_fn $k [format "\x30\x45\x30%c" [expr {48 + $ecc}]]] \
+			[_fn $k "\x30\x50\x30$data"] \
+			[_fn $k "\x30\x51\x30"]] ""]
 	}
 	proc send_status {n} { ## GS r n: Transmission of status
 		return [format "\x1d\x72%c" $n]
@@ -279,10 +467,12 @@ namespace eval ::escpos {
 	}
 	## not implemented: Chinese Character Control Commands
 
-	proc img {fn {mode GSv0}} { ## load and print bit image
+	## load PNG image (file name, "-" for stdin or "| command") as raster rows of bytes,
+	## width aligned by $align dots; returns {w h da} or "" on error
+	proc _img_load {fn {align 32}} {
 		if {[info commands ::GD] eq ""} {
 			puts stderr "ERROR: tclgd library not loaded"
-			return ":("
+			return ""
 		}
 
 		if {[catch {
@@ -293,7 +483,7 @@ namespace eval ::escpos {
 			}
 		} fid]} {
 			puts stderr "ERROR: $fid"
-			return ":("
+			return ""
 		}
 
 		fconfigure $fp -translation binary
@@ -310,8 +500,7 @@ namespace eval ::escpos {
 		set w_real [gdimg width]
 		set h_real [gdimg height]
 
-		## align width by 32
-		set w [expr {($w_real-1) + 32-(($w_real-1) % 32)}]
+		set w [expr {($w_real + $align - 1) / $align * $align}]
 		set h $h_real
 
 		for {set y 0} {$y < $h} {incr y} {
@@ -330,11 +519,66 @@ namespace eval ::escpos {
 				lappend da $c
 			}
 		}
+		gdimg delete
+		return [list $w $h $da]
+	}
+
+	## raster image as xL xH yL yH c d1...dk for GS ( L graphics data
+	proc _img_rasterdata {w h da} {
+		return "[format %c%c%c%c {*}[_nLnH $w] {*}[_nLnH $h]]\x31[binary format c* $da]"
+	}
+
+	## convert raster rows to column format in bands of $band dots height (multiple of 8):
+	## returns a list of bands, each a list of bytes, $band/8 bytes per column, top bit first
+	proc _img_columns {w h da band} {
+		set stride [expr {$w / 8}]
+		set bands {}
+		for {set y0 0} {$y0 < $h} {incr y0 $band} {
+			set cols {}
+			for {set x 0} {$x < $w} {incr x} {
+				set bit [expr {7 - $x % 8}]
+				for {set j 0} {$j < $band} {incr j 8} {
+					set c 0
+					for {set k 0} {$k < 8} {incr k} {
+						set y [expr {$y0 + $j + $k}]
+						if {$y < $h} {
+							set p [expr {([lindex $da [expr {$y * $stride + $x / 8}]] >> $bit) & 1}]
+							set c [expr {$c | ($p << (7-$k))}]
+						}
+					}
+					lappend cols $c
+				}
+			}
+			lappend bands $cols
+		}
+		return $bands
+	}
+
+	## image in column format as one band: returns {x y d} with x, y in units of 8 dots, or "" on error
+	proc _img_colimage {fn} {
+		set img [_img_load $fn 8]
+		if {$img eq ""} { return "" }
+		lassign $img w h da
+		set y [expr {($h + 7) / 8}]
+		set cols [lindex [_img_columns $w $h $da [expr {$y * 8}]] 0]
+		return [list [expr {$w / 8}] $y [binary format c* $cols]]
+	}
+
+	proc img {fn {mode GSv0}} { ## load and print bit image
+		## modes: GSv0 (GS v 0), GSL (GS ( L / GS 8 L graphics), raw
+		set img [_img_load $fn [expr {$mode eq "GSL" ? 8 : 32}]]
+		if {$img eq ""} { return ":(" }
+		lassign $img w h da
 
 		switch -- $mode {
 			GSv0 {
 				## print using GS v 0
 				return [binary format "H*cssc[expr {$w/8*$h}]" {1d7630} 0 [expr {$w / 8}] $h $da]
+			}
+			GSL {
+				## store graphics data in print buffer (fn=112) and print it (fn=50)
+				set data [format "\x30\x70\x30\x01\x01\x31%c%c%c%c" {*}[_nLnH $w] {*}[_nLnH $h]]
+				return "[_gsL $data[binary format c* $da]][_gsL "\x30\x32"]"
 			}
 			raw {
 				return [list $w $h $da]
@@ -352,7 +596,7 @@ namespace eval ::escpos {
 	}
 	proc dm_cur_end {} {
 		## US B
-		return [format "%c%x" 0x1f 0x42]
+		return [format "%c%c" 0x1f 0x42]
 	}
 	proc dm_cur_line_home {} {
 		## CR
@@ -360,7 +604,7 @@ namespace eval ::escpos {
 	}
 	proc dm_cur_line_end {} {
 		## US CR
-		return [format "%c%x" 0x1f 0x0d]
+		return [format "%c%c" 0x1f 0x0d]
 	}
 	proc dm_cur_down {} {
 		## LF
@@ -368,7 +612,7 @@ namespace eval ::escpos {
 	}
 	proc dm_cur_up {} {
 		## US LF
-		return [format "%c%x" 0x1f 0x0a]
+		return [format "%c%c" 0x1f 0x0a]
 	}
 	proc dm_cur_tab {} {
 		## HT
@@ -404,8 +648,8 @@ namespace eval ::escpos {
 	}
 	proc dm_set_cursor_visible {{n 1}} { ## Set visibility of cursor
 		## US C n
-		## 1 or 48 = on
-		## 0 or 49 = off
+		## 1 or 49 = on
+		## 0 or 48 = off
 		return [format "%c%c%c" 0x1f 0x43 $n ]
 	}
 	proc dm_set_blank_interval {{n 1}} { ## Set display blank interval
@@ -556,7 +800,7 @@ namespace eval ::eptmpl {
 	}
 
 	proc umlautmap {text} {
-		return [string map {ä "\x84" ö "\x94" ü "\x81" Ä "\x8E" Ö "\x99" Ü "\x9A" ß "\xE1"} $text]]
+		return [string map {ä "\x84" ö "\x94" ü "\x81" Ä "\x8E" Ö "\x99" Ü "\x9A" ß "\xE1"} $text]
 	}
 
 }
